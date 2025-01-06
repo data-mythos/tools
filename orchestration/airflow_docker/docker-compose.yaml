@@ -1,0 +1,101 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - airflow_network
+
+  redis:
+    image: redis:latest
+    networks:
+      - airflow_network
+
+  airflow-webserver:
+    image: my_airflow_image  # Custom image with Pandas and Dask installed
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=True
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/0
+      - AIRFLOW__WEBSERVER__RBAC=True
+      - AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=60
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - AIRFLOW__WEBSERVER__SECRET_KEY=8z3XjJlcIb7kUCnTM0w_3tFh3ZxbOEX8pXdF5T3ECuE
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    ports:
+      - "8080:8080"
+    networks:
+      - airflow_network
+    depends_on:
+      - postgres
+      - redis
+    entrypoint: >
+      bash -c "
+        airflow db init && 
+        airflow webserver
+      "
+
+  airflow-scheduler:
+    image: my_airflow_image  # Custom image with Pandas and Dask installed
+    command: [ "bash", "-c", "airflow db init && airflow scheduler" ]
+    environment:
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/0
+      - AIRFLOW__WEBSERVER__SECRET_KEY=8z3XjJlcIb7kUCnTM0w_3tFh3ZxbOEX8pXdF5T3ECuE
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./plugins:/opt/airflow/plugins
+    networks:
+      - airflow_network
+    depends_on:
+      - postgres
+      - redis
+
+  airflow-worker:
+    image: my_airflow_image  # Custom image with Pandas and Dask installed
+    command: [ "celery", "worker" ]
+    environment:
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/0
+      - AIRFLOW__WEBSERVER__SECRET_KEY=8z3XjJlcIb7kUCnTM0w_3tFh3ZxbOEX8pXdF5T3ECuE
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./plugins:/opt/airflow/plugins
+    networks:
+      - airflow_network
+    depends_on:
+      - postgres
+      - redis
+
+  airflow-flower:
+    image: apache/airflow:2.5.1
+    depends_on:
+      - redis
+      - airflow-webserver
+    environment:
+      - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    networks:
+      - airflow_network
+    command: flower
+
+networks:
+  airflow_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
