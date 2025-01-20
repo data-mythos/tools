@@ -1,57 +1,99 @@
-from datetime import datetime, timedelta
+"""
+Simple ETL DAG Example
 
-import pandas as pd
+This DAG demonstrates the basic structure of an Airflow DAG with two sequential tasks.
+It serves as a template for creating more complex ETL workflows.
+
+DAG Parameters:
+    - Schedule: Daily
+    - Start Date: Jan 19, 2025
+    - Catchup: False (only run for current date)
+"""
+
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.operators.python_operator import PythonOperator
+from datetime import datetime
+import logging
 
-# Sample data for the first DataFrame
-data_1 = {
-    'id': [1, 2, 3],
-    'name': ['Alice', 'Bob', 'Charlie']
-}
+# Get Airflow's logger
+logger = logging.getLogger(__name__)
 
-# Sample data for the second DataFrame
-data_2 = {
-    'id': [1, 2, 4],
-    'age': [25, 30, 28]
-}
+def greet_user(**context):
+    """
+    A simple Python callable that demonstrates logging in Airflow tasks.
+    
+    Args:
+        **context: Task context containing runtime variables
+    
+    Returns:
+        None: Logs greeting message and task information
+    """
+    # Get task instance from context
+    task_instance = context['task_instance']
+    task_id = task_instance.task_id
+    execution_date = context['execution_date']
 
+    try:
+        logger.info(f"Starting task {task_id}")
+        logger.info(f"Execution date: {execution_date}")
+        
+        # Task logic
+        message = "Hello, Airflow!"
+        logger.info(f"Generated message: {message}")
+        
+        # Log successful completion
+        logger.info(f"Task {task_id} completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Error in task {task_id}: {str(e)}", exc_info=True)
+        raise
 
-# Function to perform the join operation
-def join_dataframes():
-    # Create DataFrames from the sample data
-    df1 = pd.DataFrame(data_1)
-    df2 = pd.DataFrame(data_2)
+logger.info("Initializing ETL Sample DAG")
 
-    # Perform an inner join on the 'id' column
-    result_df = pd.merge(df1, df2, on='id', how='inner')
-
-    # Print the result to the Airflow logs (for visibility)
-    print("Joined DataFrame:")
-    print(result_df)
-
-
-# Define the default arguments for the DAG
+# Define default parameters for the DAG
 default_args = {
-    'owner': 'airflow',
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
+    'owner': 'airflow',              # Owner of the DAG
+    'start_date': datetime(2025, 1, 19),  # Date when DAG should start
+    # Additional parameters you might want to add:
+    # 'retries': 1,                  # Number of retries if task fails
+    # 'retry_delay': timedelta(minutes=5),  # Delay between retries
+    # 'email': ['your-email@domain.com'],  # Email for notifications
+    # 'email_on_failure': False,     # Send email on task failure
 }
 
-# Define the DAG
-with DAG(
-        'pandas_dataframe_join',
-        default_args=default_args,
-        description='A simple DAG to join two Pandas DataFrames',
-        schedule_interval=None,  # Run on demand
-        start_date=datetime(2025, 1, 6),
-        catchup=False
-) as dag:
-    # Define the task to run the join operation
-    join_task = PythonOperator(
-        task_id='join_dataframes_task',
-        python_callable=join_dataframes
-    )
+# Initialize the DAG
+dag = DAG(
+    'simple_dag',                    # Unique identifier for the DAG
+    default_args=default_args,       # Default arguments defined above
+    schedule_interval='@daily',      # Run frequency
+    # Additional parameters:
+    # catchup=False,                 # Don't backfill missing runs
+    # tags=['example', 'tutorial'],  # Tags for organizing DAGs
+)
 
-    # Set task dependencies (if you have multiple tasks, you can chain them)
-    join_task
+logger.debug("Created DAG object with default parameters")
+
+# Define the first task
+task1 = PythonOperator(
+    task_id='greet_task',           # Unique identifier for the task
+    python_callable=greet_user,      # Function to execute
+    provide_context=True,
+    dag=dag,                        # Associated DAG
+)
+logger.debug("Created task1: greet_task")
+
+# Define the second task
+task2 = PythonOperator(
+    task_id='another_task',         # Unique identifier for the task
+    python_callable=greet_user,      # Function to execute
+    provide_context=True,
+    dag=dag,                        # Associated DAG
+)
+logger.debug("Created task2: another_task")
+
+# Set task dependencies: task1 must complete before task2 starts
+task1 >> task2
+logger.info("Task dependencies set: task1 >> task2")
+
+logger.info("ETL Sample DAG initialization complete")
+

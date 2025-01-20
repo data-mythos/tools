@@ -1,97 +1,158 @@
 version: '3'
 
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.7.3-python3.9
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-airflow}@redis:6379/0
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT: 60
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-your-secret-key-here}
+    AIRFLOW__WEBSERVER__WORKERS: 4
+    AIRFLOW_VAR_ENVIRONMENT: production
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30
+    AIRFLOW__CORE__ENABLE_XCOM_PICKLING: 'true'
+    AIRFLOW__CORE__DAG_FILE_PROCESSOR_TIMEOUT: 600
+    AIRFLOW__SCHEDULER__PARSING_PROCESSES: 2
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 30
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./config:/opt/airflow/config
+  networks:
+    - airflow_network
+  depends_on: &airflow-common-depends-on
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+
 services:
   postgres:
     image: postgres:13
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
       POSTGRES_DB: airflow
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
     networks:
       - airflow_network
 
   redis:
-    image: redis:latest
+    image: redis:7.2
+    expose:
+      - 6379
+    command: redis-server --requirepass ${REDIS_PASSWORD:-airflow}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
     networks:
       - airflow_network
 
   airflow-webserver:
-    image: my_airflow_image  # Custom image with Pandas and Dask installed
-    environment:
-      - AIRFLOW__CORE__LOAD_EXAMPLES=True
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
-      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
-      - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/0
-      - AIRFLOW__WEBSERVER__RBAC=True
-      - AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=60
-      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
-      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
-      - AIRFLOW__WEBSERVER__SECRET_KEY=8z3XjJlcIb7kUCnTM0w_3tFh3ZxbOEX8pXdF5T3ECuE
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./logs:/opt/airflow/logs
-      - ./plugins:/opt/airflow/plugins
+    <<: *airflow-common
+    command: webserver
     ports:
       - "8080:8080"
-    networks:
-      - airflow_network
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
     depends_on:
-      - postgres
-      - redis
-    entrypoint: >
-      bash -c "
-        airflow db init && 
-        airflow webserver
-      "
+      <<: *airflow-common-depends-on
 
   airflow-scheduler:
-    image: my_airflow_image  # Custom image with Pandas and Dask installed
-    command: [ "bash", "-c", "airflow db init && airflow scheduler" ]
-    environment:
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
-      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
-      - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/0
-      - AIRFLOW__WEBSERVER__SECRET_KEY=8z3XjJlcIb7kUCnTM0w_3tFh3ZxbOEX8pXdF5T3ECuE
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./plugins:/opt/airflow/plugins
-    networks:
-      - airflow_network
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
     depends_on:
-      - postgres
-      - redis
+      <<: *airflow-common-depends-on
 
   airflow-worker:
-    image: my_airflow_image  # Custom image with Pandas and Dask installed
-    command: [ "celery", "worker" ]
+    <<: *airflow-common
+    command: celery worker
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - 'celery --app airflow.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}" || exit 1'
+      interval: 30s
+      timeout: 10s
+      retries: 5
     environment:
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
-      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
-      - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/0
-      - AIRFLOW__WEBSERVER__SECRET_KEY=8z3XjJlcIb7kUCnTM0w_3tFh3ZxbOEX8pXdF5T3ECuE
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./plugins:/opt/airflow/plugins
-    networks:
-      - airflow_network
+      <<: *airflow-common-env
+      # Increase memory limit for workers
+      AIRFLOW__CELERY__WORKER_CONCURRENCY: 8
+    restart: always
     depends_on:
-      - postgres
-      - redis
+      <<: *airflow-common-depends-on
 
-  airflow-flower:
-    image: apache/airflow:2.5.1
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
     depends_on:
-      - redis
-      - airflow-webserver
+      <<: *airflow-common-depends-on
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        mkdir -p /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins
+        exec airflow db init && 
+        airflow users create \
+          --username ${AIRFLOW_ADMIN_USER:-admin} \
+          --firstname ${AIRFLOW_ADMIN_FIRSTNAME:-Admin} \
+          --lastname ${AIRFLOW_ADMIN_LASTNAME:-User} \
+          --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com} \
+          --role Admin \
+          --password ${AIRFLOW_ADMIN_PASSWORD:-admin}
     environment:
-      - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/0
+      <<: *airflow-common-env
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+    depends_on:
+      <<: *airflow-common-depends-on
+
+  flower:
+    <<: *airflow-common
+    command: celery flower
     ports:
       - "5555:5555"
-    networks:
-      - airflow_network
-    command: flower
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:5555/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
 
 networks:
   airflow_network:
