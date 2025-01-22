@@ -1,0 +1,46 @@
+# Apache Airflow
+apache-airflow==2.7.1
+
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==1.4.50
+
+# AWS Integration
+apache-airflow-providers-amazon==8.11.0
+boto3==1.28.44
+s3fs==2023.9.2
+
+# Azure Integration
+apache-airflow-providers-microsoft-azure==8.2.0
+
+# Google Cloud Integration
+apache-airflow-providers-google==10.11.0
+
+# Data Processing
+pandas==2.1.1
+numpy==1.24.3
+pyarrow==13.0.0
+
+# API and HTTP
+requests==2.31.0
+httpx==0.25.0
+
+# Monitoring & Logging
+prometheus-client==0.17.1
+python-json-logger==2.0.7
+
+# Development & Testing
+pytest==7.4.2
+black==23.9.1
+flake8==6.1.0
+
+# Security
+python-dotenv==1.0.0
+cryptography==41.0.4
+
+# Other Utils
+python-dateutil==2.8.2
+pendulum==2.1.2
+
+# Additional packages
+apache-airflow-providers-postgres==5.7.1 

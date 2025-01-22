@@ -2,7 +2,7 @@
 
 ## Project Structure
 ```
-airflow_docker/
+airflow/
 ├── dags/                 # Store your DAG files
 ├── logs/                 # Airflow logs directory
 ├── plugins/              # Custom Airflow plugins

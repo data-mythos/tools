@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse-db
+    environment:
+      - CLICKHOUSE_DB=social_media
+      - CLICKHOUSE_USER=admin
+      - CLICKHOUSE_PASSWORD=adminpassword
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    ports:
+      - "9000:9000"
+      - "8123:8123"
+      - "9009:9009"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ../init:/docker-entrypoint-initdb.d
+    networks:
+      - clickhouse-net
+    restart: always
+
+  tabix:
+    image: spoonest/clickhouse-tabix-web-client
+    container_name: clickhouse-ui
+    ports:
+      - "8080:80"
+    depends_on:
+      - clickhouse
+    environment:
+      - CH_NAME=social_media
+      - CH_HOST=clickhouse
+      - CH_PORT=8123
+      - CH_USER=admin
+      - CH_PASSWORD=adminpassword
+    networks:
+      - clickhouse-net
+    restart: always
+
+networks:
+  clickhouse-net:
+    driver: bridge
+
+volumes:
+  clickhouse_data: 

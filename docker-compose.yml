@@ -1,0 +1,16 @@
+# ... existing services ...
+
+  init-data:
+    image: apache/druid:27.0.0
+    volumes:
+      - ./data:/opt/druid/data
+      - druid_shared:/opt/shared
+    depends_on:
+      - router
+      - coordinator
+      - broker
+      - historical
+      - middlemanager
+    command: ["sh", "/opt/druid/data/init/init-druid.sh"]
+
+# ... rest of the file ...
